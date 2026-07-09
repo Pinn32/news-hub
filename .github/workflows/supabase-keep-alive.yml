@@ -11,18 +11,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # A real write (upsert) is unambiguous DB activity; a read may not count.
-      # Requires an anon INSERT/UPDATE RLS policy on keep_alive, or swap
-      # SUPABASE_ANON_KEY for a service_role key to bypass RLS.
+      # Uses the service_role key so RLS is bypassed. If you'd rather use the
+      # anon key, add an INSERT/UPDATE RLS policy on keep_alive for the anon role.
       - name: Upsert into Supabase to reset the 7-day inactivity timer
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # service_role key bypasses RLS - appropriate for a server-side cron.
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           set -euo pipefail
           body=$(curl -sS -w $'\n%{http_code}' \
             -X POST "${SUPABASE_URL}/rest/v1/keep_alive?on_conflict=id" \
-            -H "apikey: ${SUPABASE_ANON_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
             -H "Content-Type: application/json" \
             -H "Prefer: resolution=merge-duplicates,return=minimal" \
             -d '[{"id":1}]')
