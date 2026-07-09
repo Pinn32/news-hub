@@ -1,9 +1,10 @@
 // scripts/keep-alive-mongo.mjs
-// Keeps the MongoDB Atlas free (M0) cluster alive by opening a real connection.
-// Atlas auto-pauses idle clusters; any connection resets the inactivity timer.
+// Keeps the MongoDB Atlas free (M0) cluster alive with a REAL write.
+// An admin ping does not reliably count as cluster activity; an actual
+// upsert on a collection is genuine CRUD activity that resets the timer.
 // SECURITY: never log MONGODB_URI — it embeds credentials.
 
-import mongoose from "mongoose";
+import { MongoClient } from "mongodb";
 
 const uri = process.env.MONGODB_URI;
 if (!uri) {
@@ -11,13 +12,23 @@ if (!uri) {
   process.exit(1);
 }
 
+const client = new MongoClient(uri, { serverSelectionTimeoutMS: 15000 });
+
 try {
-  await mongoose.connect(uri, {
-    bufferCommands: false,
-    serverSelectionTimeoutMS: 15000,
-  });
-  const res = await mongoose.connection.db.admin().ping(); // -> { ok: 1 }
-  console.log("MongoDB ping ok:", JSON.stringify(res));
+  await client.connect();
+  // client.db() uses the database named in the connection string.
+  const res = await client
+    .db()
+    .collection("keep_alive")
+    .updateOne(
+      { _id: "keep-alive" },
+      { $set: { lastPingAt: new Date() } },
+      { upsert: true }
+    );
+  console.log(
+    `MongoDB keep-alive write ok (matched=${res.matchedCount}, ` +
+      `modified=${res.modifiedCount}, upserted=${res.upsertedCount})`
+  );
 } catch (err) {
   // Log only the error type/code — err.message can contain the host/URI.
   console.error(
@@ -26,5 +37,5 @@ try {
   );
   process.exitCode = 1;
 } finally {
-  await mongoose.disconnect().catch(() => {});
+  await client.close().catch(() => {});
 }
